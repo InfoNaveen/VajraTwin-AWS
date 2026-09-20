@@ -1,0 +1,188 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: VajraTwin - MALE UAV Digital Twin (direct CFN, no SAM transform)
+
+Parameters:
+  Stage:
+    Type: String
+    Default: dev
+  LambdaS3Bucket:
+    Type: String
+    Default: vajratwin-deploy-183863150170
+  LambdaS3Key:
+    Type: String
+    Default: lambda/vajra_lambda.zip
+
+Resources:
+
+  # ── DynamoDB ──────────────────────────────────────────────────────────────
+  TelemetryStore:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "TelemetryStore-${Stage}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: engineId
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: S
+      KeySchema:
+        - AttributeName: engineId
+          KeyType: HASH
+        - AttributeName: timestamp
+          KeyType: RANGE
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  # ── IAM Role for Lambda ───────────────────────────────────────────────────
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "VajraTwinLambdaRole-${Stage}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: VajraTwinLambdaPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                Resource: !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0"
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                Resource: !GetAtt TelemetryStore.Arn
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "arn:aws:logs:*:*:*"
+
+  # ── Lambda Function ───────────────────────────────────────────────────────
+  VajraTwinFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "VajraTwinEngine-${Stage}"
+      Runtime: python3.12
+      Handler: handler.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 30
+      MemorySize: 256
+      Code:
+        S3Bucket: !Ref LambdaS3Bucket
+        S3Key: !Ref LambdaS3Key
+      Environment:
+        Variables:
+          TELEMETRY_TABLE: !Ref TelemetryStore
+          BEDROCK_MODEL_ID: "anthropic.claude-haiku-4-5-20251001-v1:0"
+          LOG_LEVEL: "INFO"
+
+  # ── API Gateway REST API ──────────────────────────────────────────────────
+  VajraTwinApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub "vajra-twin-api-${Stage}"
+      Description: VajraTwin telemetry API
+
+  # /telemetry resource
+  TelemetryResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref VajraTwinApi
+      ParentId: !GetAtt VajraTwinApi.RootResourceId
+      PathPart: telemetry
+
+  # POST method
+  TelemetryPostMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref VajraTwinApi
+      ResourceId: !Ref TelemetryResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${VajraTwinFunction.Arn}/invocations"
+
+  # GET method
+  TelemetryGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref VajraTwinApi
+      ResourceId: !Ref TelemetryResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${VajraTwinFunction.Arn}/invocations"
+
+  # OPTIONS method for CORS preflight
+  TelemetryOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref VajraTwinApi
+      ResourceId: !Ref TelemetryResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        IntegrationResponses:
+          - StatusCode: "200"
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+            ResponseTemplates:
+              application/json: ""
+      MethodResponses:
+        - StatusCode: "200"
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+
+  # Lambda permission for API Gateway
+  LambdaApiPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref VajraTwinFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${VajraTwinApi}/*"
+
+  # Deploy the API
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - TelemetryPostMethod
+      - TelemetryGetMethod
+      - TelemetryOptionsMethod
+    Properties:
+      RestApiId: !Ref VajraTwinApi
+
+  ApiStage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      RestApiId: !Ref VajraTwinApi
+      DeploymentId: !Ref ApiDeployment
+      StageName: !Ref Stage
+
+Outputs:
+  ApiUrl:
+    Value: !Sub "https://${VajraTwinApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
+    Description: API Gateway base URL
+  TelemetryEndpoint:
+    Value: !Sub "https://${VajraTwinApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}/telemetry"
+    Description: POST /telemetry endpoint
