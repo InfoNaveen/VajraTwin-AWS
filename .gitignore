@@ -12,3 +12,4 @@ __pycache__/
 notebooks/
 tests/
 simulate_flight.py
+ARCHITECTURE.md
