@@ -11,3 +11,4 @@ __pycache__/
 # Workspace directories
 notebooks/
 tests/
+simulate_flight.py
