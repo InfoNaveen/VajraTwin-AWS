@@ -1,0 +1,9 @@
+{
+  "httpMethod": "POST",
+  "path": "/telemetry",
+  "headers": {
+    "Content-Type": "application/json"
+  },
+  "body": "{\"engine_id\": \"rotax-914-001\", \"rpm\": 5500, \"map_hpa\": 120.0, \"egt_actual\": 820.0, \"cht_actual\": 210.0}",
+  "isBase64Encoded": false
+}
