@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Request
+from mangum import Mangum
 from core.physics_surrogate import calculate_residuals
 from core.ai_diagnostics import DiagnosticEngine
 from core.mission_prognostics import PrognosticEngine
@@ -45,3 +46,5 @@ async def analyze_twin(request: Request):
         "estimated_rul_minutes": prog_out["estimated_rul_minutes"],
         "mission_advisory": prog_out["mission_advisory"]
     }
+
+handler = Mangum(app)
