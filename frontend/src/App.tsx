@@ -16,6 +16,7 @@ import TopBar          from "./components/TopBar";
 import StatCard        from "./components/StatCard";
 import ResidualsChart  from "./components/ResidualsChart";
 import DiagnosticsPanel from "./components/DiagnosticsPanel";
+import AWSPanel        from "./components/AWSPanel";
 import { useEngineStream } from "./hooks/useEngineStream";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -222,7 +223,15 @@ export default function App() {
           />
         </section>
 
-        {/* ── Row 5: Last raw payload inspector (collapsible) ─────────── */}
+        {/* ── Row 5: AWS Infrastructure panel ─────────────────────────── */}
+        <section>
+          <AWSPanel
+            tickCount={stream.tickCount ?? 0}
+            advisorySource={response?.xai_advisory?.advisory_source}
+          />
+        </section>
+
+        {/* ── Row 6: Last raw payload inspector (collapsible) ─────────── */}
         {response && (
           <section>
             <details className="gcs-card group">

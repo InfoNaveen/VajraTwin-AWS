@@ -34,8 +34,9 @@ export interface Residuals {
 
 // ── XAI Advisory returned from Bedrock (via Lambda) ──────────────────────
 export interface XAIAdvisory {
-  root_cause: string;
-  advisory:   AdvisoryState;
+  root_cause:      string;
+  advisory:        AdvisoryState;
+  advisory_source: string;   // "bedrock" | "rule_engine"
 }
 
 // ── Full Lambda response body ──────────────────────────────────────────────
@@ -74,6 +75,7 @@ export interface EngineStreamState {
   isFaultActive:   boolean;
   connectionStatus: "live" | "idle" | "error";
   errorMessage:    string | null;
+  tickCount:       number;
   // Controls
   toggleStreaming:  () => void;
   toggleFault:      () => void;

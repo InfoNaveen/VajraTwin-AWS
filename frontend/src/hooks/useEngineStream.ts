@@ -75,6 +75,7 @@ export function useEngineStream(): EngineStreamState {
   const [latestTelemetry,   setLatestTelemetry]   = useState<TelemetryPayload | null>(null);
   const [latestResponse,    setLatestResponse]    = useState<TelemetryResponse | null>(null);
   const [chartData,         setChartData]         = useState<ChartPoint[]>([]);
+  const [tickCount,         setTickCount]         = useState(0);
 
   // Stable refs so the interval closure never goes stale
   const isFaultRef    = useRef(isFaultActive);
@@ -109,6 +110,7 @@ export function useEngineStream(): EngineStreamState {
       // Append to rolling chart buffer
       const now   = new Date();
       tickRef.current += 1;
+      setTickCount(tickRef.current);
       const point: ChartPoint = {
         tick:      tickRef.current,
         time:      toTimeLabel(now),
@@ -138,6 +140,7 @@ export function useEngineStream(): EngineStreamState {
         return {
           ...prev,
           xai_advisory: {
+            ...prev.xai_advisory,
             root_cause: `Connection error: ${msg}`,
             advisory:   "ERROR" as AdvisoryState,
           },
@@ -178,6 +181,7 @@ export function useEngineStream(): EngineStreamState {
     isFaultActive,
     connectionStatus,
     errorMessage,
+    tickCount,
     toggleStreaming,
     toggleFault,
   };
