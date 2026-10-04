@@ -1,0 +1,199 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+
+Description: >
+  VajraTwin – Real-Time Digital Twin for MALE UAV Aero-Piston Engines (Rotax 914 F/UL).
+  Serverless pipeline: API Gateway → Lambda (physics engine + Bedrock XAI) → DynamoDB.
+
+# ---------------------------------------------------------------------------
+# Global defaults applied to every AWS::Serverless::Function resource
+# ---------------------------------------------------------------------------
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 30          # seconds – Bedrock round-trip can be ~10 s
+    MemorySize: 256
+    Environment:
+      Variables:
+        TELEMETRY_TABLE: !Ref TelemetryStore
+        BEDROCK_MODEL_ID: "anthropic.claude-haiku-4-5-20251001-v1:0"
+        POWERTOOLS_SERVICE_NAME: "vajra-twin"
+        LOG_LEVEL: "INFO"
+  Api:
+    Cors:
+      AllowMethods: "'GET,POST,OPTIONS'"
+      AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key'"
+      AllowOrigin: "'*'"
+
+# ---------------------------------------------------------------------------
+# Parameters
+# ---------------------------------------------------------------------------
+Parameters:
+  Stage:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+    Description: Deployment stage name
+
+# ---------------------------------------------------------------------------
+# Resources
+# ---------------------------------------------------------------------------
+Resources:
+
+  # ── 1. API Gateway (implicit SAM HttpApi) ────────────────────────────────
+  VajraTwinApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub "vajra-twin-api-${Stage}"
+      StageName: !Ref Stage
+      Description: "VajraTwin telemetry ingestion and advisory API"
+      # Wide-open CORS so the local Vite dev server can call the endpoint
+      Cors:
+        AllowMethods: "'GET,POST,OPTIONS'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Requested-With'"
+        AllowOrigin: "'*'"
+        MaxAge: "'600'"
+      # Gateway-level response templates to inject CORS headers on 4xx/5xx
+      GatewayResponses:
+        DEFAULT_4XX:
+          ResponseParameters:
+            Headers:
+              Access-Control-Allow-Origin: "'*'"
+              Access-Control-Allow-Headers: "'Content-Type'"
+        DEFAULT_5XX:
+          ResponseParameters:
+            Headers:
+              Access-Control-Allow-Origin: "'*'"
+              Access-Control-Allow-Headers: "'Content-Type'"
+
+  # ── 2. Lambda – VajraTwinEngine ──────────────────────────────────────────
+  VajraTwinEngineFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "VajraTwinEngine-${Stage}"
+      Description: >
+        Physics residual calculator + Bedrock XAI root-cause analyser
+        for Rotax 914 F/UL engine telemetry.
+      CodeUri: backend/lambda/vajra_engine/
+      Handler: handler.lambda_handler
+
+      # ── IAM Policies ─────────────────────────────────────────────────────
+      #   Explicit grants required by the brief:
+      #     • bedrock:InvokeModel  – call Claude 3 Haiku via Bedrock Runtime
+      #     • dynamodb:PutItem     – write telemetry + advisory record
+      Policies:
+        - Statement:
+            # Bedrock: invoke any model in the account/region
+            - Sid: AllowBedrockInvokeModel
+              Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource:
+                - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0"
+
+            # DynamoDB: write records to the telemetry table only
+            - Sid: AllowDynamoDBPutItem
+              Effect: Allow
+              Action:
+                - dynamodb:PutItem
+              Resource:
+                - !GetAtt TelemetryStore.Arn
+
+            # CloudWatch Logs: allow Lambda to publish its own log streams
+            - Sid: AllowCloudWatchLogs
+              Effect: Allow
+              Action:
+                - logs:CreateLogGroup
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource: "arn:aws:logs:*:*:*"
+
+      # ── API Gateway Event Sources ─────────────────────────────────────────
+      Events:
+        # POST /telemetry  – ingest engine snapshot, run physics, call Bedrock
+        IngestTelemetry:
+          Type: Api
+          Properties:
+            RestApiId: !Ref VajraTwinApi
+            Path: /telemetry
+            Method: POST
+
+        # GET /telemetry   – (future) list recent records from DynamoDB
+        GetTelemetry:
+          Type: Api
+          Properties:
+            RestApiId: !Ref VajraTwinApi
+            Path: /telemetry
+            Method: GET
+
+        # OPTIONS /telemetry – browser preflight; handled by SAM CORS config
+        OptionsTelemetry:
+          Type: Api
+          Properties:
+            RestApiId: !Ref VajraTwinApi
+            Path: /telemetry
+            Method: OPTIONS
+
+  # ── 3. DynamoDB – TelemetryStore ─────────────────────────────────────────
+  TelemetryStore:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "TelemetryStore-${Stage}"
+      BillingMode: PAY_PER_REQUEST       # on-demand; no capacity planning needed for MVP
+      # Primary key: engineId (partition) + timestamp (sort) → time-series access
+      AttributeDefinitions:
+        - AttributeName: engineId
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: S
+      KeySchema:
+        - AttributeName: engineId
+          KeyType: HASH
+        - AttributeName: timestamp
+          KeyType: RANGE
+      # Automatically expire records after a configurable TTL (attribute: ttl)
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      # Point-in-time recovery enabled for all stages
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      Tags:
+        - Key: Project
+          Value: VajraTwin
+        - Key: Stage
+          Value: !Ref Stage
+
+# ---------------------------------------------------------------------------
+# Outputs – values surfaced after `sam deploy`
+# ---------------------------------------------------------------------------
+Outputs:
+  ApiBaseUrl:
+    Description: "Base URL for the VajraTwin API Gateway endpoint"
+    Value: !Sub "https://${VajraTwinApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
+    Export:
+      Name: !Sub "VajraTwin-ApiBaseUrl-${Stage}"
+
+  TelemetryEndpoint:
+    Description: "Full URL for the POST /telemetry endpoint"
+    Value: !Sub "https://${VajraTwinApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}/telemetry"
+    Export:
+      Name: !Sub "VajraTwin-TelemetryEndpoint-${Stage}"
+
+  LambdaFunctionArn:
+    Description: "ARN of the VajraTwinEngine Lambda function"
+    Value: !GetAtt VajraTwinEngineFunction.Arn
+    Export:
+      Name: !Sub "VajraTwin-LambdaArn-${Stage}"
+
+  DynamoDBTableName:
+    Description: "Name of the TelemetryStore DynamoDB table"
+    Value: !Ref TelemetryStore
+    Export:
+      Name: !Sub "VajraTwin-DynamoTableName-${Stage}"
+
+  DynamoDBTableArn:
+    Description: "ARN of the TelemetryStore DynamoDB table"
+    Value: !GetAtt TelemetryStore.Arn
+    Export:
+      Name: !Sub "VajraTwin-DynamoTableArn-${Stage}"

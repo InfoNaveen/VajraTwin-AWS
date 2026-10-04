@@ -1,120 +1,130 @@
-import { Activity, Cpu, Database, Wifi, WifiOff, Loader2, Clock } from "lucide-react";
-import { useEffect, useState } from "react";
-import type { ConnectionStatus, SimulationStatus } from "../types";
+// ---------------------------------------------------------------------------
+// TopBar – GCS navigation bar with engine ID, status, and control buttons
+// ---------------------------------------------------------------------------
+import { Activity, Power, Zap, ZapOff, Cpu } from "lucide-react";
+import { API_GATEWAY_URL } from "../hooks/useEngineStream";
 
 interface Props {
-  connection: ConnectionStatus;
-  demoMode: boolean;
-  engineId: string;
-  sim: SimulationStatus | null;
+  engineId:        string;
+  isStreaming:     boolean;
+  isLoading:       boolean;
+  isFaultActive:   boolean;
+  connectionStatus: "live" | "idle" | "error";
+  onToggleStream:  () => void;
+  onToggleFault:   () => void;
 }
 
-function ConnPill({ connection }: { connection: ConnectionStatus }) {
-  const map = {
-    online: { icon: <Wifi className="w-3.5 h-3.5" />, label: "BACKEND ONLINE", cls: "text-adv-go" },
-    offline: { icon: <WifiOff className="w-3.5 h-3.5" />, label: "BACKEND OFFLINE", cls: "text-adv-maint" },
-    connecting: {
-      icon: <Loader2 className="w-3.5 h-3.5 animate-spin" />,
-      label: "CONNECTING…",
-      cls: "text-gcs-sub",
-    },
-  }[connection];
-  return (
-    <span className={`flex items-center gap-1.5 font-mono text-xs font-semibold ${map.cls}`}>
-      {map.icon}
-      {map.label}
-    </span>
-  );
-}
+const STATUS_CONFIG = {
+  live:  { dot: "status-dot live",  label: "LIVE",         text: "text-advisory-go" },
+  idle:  { dot: "status-dot idle",  label: "STANDBY",      text: "text-gcs-subtext" },
+  error: { dot: "status-dot error", label: "LINK FAILURE", text: "text-advisory-maint" },
+};
 
-export default function TopBar({ connection, demoMode, engineId, sim }: Props) {
-  const [clock, setClock] = useState(new Date());
-  useEffect(() => {
-    const t = setInterval(() => setClock(new Date()), 1000);
-    return () => clearInterval(t);
-  }, []);
-
-  const simState = sim
-    ? sim.paused
-      ? "PAUSED"
-      : sim.running
-        ? "RUNNING"
-        : "STOPPED"
-    : "—";
+export default function TopBar({
+  engineId,
+  isStreaming,
+  isLoading,
+  isFaultActive,
+  connectionStatus,
+  onToggleStream,
+  onToggleFault,
+}: Props) {
+  const status = STATUS_CONFIG[connectionStatus];
 
   return (
-    <header className="flex items-center justify-between px-6 py-3 bg-gcs-surface border-b border-gcs-border flex-wrap gap-y-2">
-      {/* Left — brand + engine */}
+    <header className="flex items-center justify-between px-6 py-3 bg-gcs-surface border-b border-gcs-border">
+      {/* Left – branding + engine ID */}
       <div className="flex items-center gap-4">
+        {/* Logo mark */}
         <div className="flex items-center gap-2">
-          <div className="w-9 h-9 bg-gcs-accent/10 border border-gcs-accent/30 rounded-lg flex items-center justify-center">
-            <Activity className="w-5 h-5 text-gcs-accent" />
+          <div className="w-8 h-8 bg-gcs-accent/10 border border-gcs-accent/30 rounded-lg flex items-center justify-center">
+            <Activity className="w-4 h-4 text-gcs-accent" />
           </div>
           <div>
-            <div className="text-sm font-bold tracking-widest text-gcs-text leading-none">
+            <div className="text-sm font-bold tracking-wide text-gcs-text leading-none">
               VAJRATWIN
             </div>
-            <div className="text-[10px] text-gcs-sub font-mono leading-none mt-0.5">
-              UAV ENGINE DIGITAL TWIN · GCS
+            <div className="text-[10px] text-gcs-subtext font-mono leading-none mt-0.5">
+              DIGITAL TWIN · GCS v1.0
             </div>
           </div>
         </div>
 
-        <div className="h-7 w-px bg-gcs-border" />
+        {/* Divider */}
+        <div className="h-6 w-px bg-gcs-border" />
 
+        {/* Engine identifier */}
         <div className="flex items-center gap-1.5">
-          <Cpu className="w-3.5 h-3.5 text-gcs-sub" />
-          <span className="font-mono text-xs text-gcs-sub">ENGINE</span>
-          <span className="font-mono text-xs text-gcs-accent font-semibold">{engineId}</span>
+          <Cpu className="w-3.5 h-3.5 text-gcs-subtext" />
+          <span className="font-mono text-xs text-gcs-subtext uppercase tracking-wider">
+            Engine
+          </span>
+          <span className="font-mono text-xs text-gcs-accent font-semibold">
+            {engineId}
+          </span>
+        </div>
+
+        {/* API endpoint indicator */}
+        <div className="hidden lg:flex items-center gap-1.5">
+          <span className="font-mono text-[10px] text-gcs-muted">
+            {API_GATEWAY_URL}/telemetry
+          </span>
         </div>
       </div>
 
-      {/* Right — status cluster */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <ConnPill connection={connection} />
+      {/* Right – status + controls */}
+      <div className="flex items-center gap-3">
+        {/* Connection status */}
+        <div className={`flex items-center gap-2 ${status.text}`}>
+          <span className={status.dot} />
+          <span className="font-mono text-xs font-semibold tracking-wider">
+            {status.label}
+          </span>
+          {isLoading && (
+            <span className="font-mono text-[10px] text-gcs-subtext animate-pulse">
+              PROCESSING…
+            </span>
+          )}
+        </div>
 
-        <div className="h-5 w-px bg-gcs-border" />
+        {/* Divider */}
+        <div className="h-6 w-px bg-gcs-border" />
 
-        {/* DB / demo mode */}
-        <span
+        {/* Fault Inject button */}
+        <button
+          onClick={onToggleFault}
+          disabled={!isStreaming}
           className={[
-            "flex items-center gap-1.5 font-mono text-xs font-semibold px-2 py-0.5 rounded border",
-            demoMode
-              ? "text-adv-monitor border-adv-monitor/40 bg-adv-monitor/10"
-              : "text-adv-go border-adv-go/30 bg-adv-go/10",
+            "flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-mono font-semibold",
+            "transition-all duration-200 disabled:opacity-30 disabled:cursor-not-allowed",
+            isFaultActive
+              ? "bg-advisory-maint/15 border-advisory-maint/60 text-advisory-maint hover:bg-advisory-maint/25 animate-pulse"
+              : "bg-gcs-muted/20 border-gcs-muted/40 text-gcs-subtext hover:border-advisory-maint/40 hover:text-advisory-maint",
           ].join(" ")}
-          title={
-            demoMode
-              ? "MongoDB unavailable — using in-memory persistence (intentional demonstrator mode)"
-              : "Connected to MongoDB"
-          }
+          title={isStreaming ? "Toggle fault injection" : "Start stream first"}
         >
-          <Database className="w-3.5 h-3.5" />
-          {demoMode ? "DEMO MODE" : "MONGODB"}
-        </span>
+          {isFaultActive ? (
+            <ZapOff className="w-3.5 h-3.5" />
+          ) : (
+            <Zap className="w-3.5 h-3.5" />
+          )}
+          {isFaultActive ? "FAULT ACTIVE" : "INJECT FAULT"}
+        </button>
 
-        <div className="h-5 w-px bg-gcs-border" />
-
-        {/* Sim state */}
-        <span
+        {/* Stream toggle button */}
+        <button
+          onClick={onToggleStream}
           className={[
-            "font-mono text-xs font-semibold",
-            simState === "RUNNING"
-              ? "text-adv-go"
-              : simState === "PAUSED"
-                ? "text-adv-monitor"
-                : "text-gcs-sub",
+            "flex items-center gap-2 px-4 py-1.5 rounded-lg border text-xs font-mono font-semibold",
+            "transition-all duration-200",
+            isStreaming
+              ? "bg-advisory-go/10 border-advisory-go/50 text-advisory-go hover:bg-advisory-go/20"
+              : "bg-gcs-accent/10 border-gcs-accent/40 text-gcs-accent hover:bg-gcs-accent/20",
           ].join(" ")}
         >
-          SIM: {simState}
-        </span>
-
-        <div className="h-5 w-px bg-gcs-border" />
-
-        <span className="flex items-center gap-1.5 font-mono text-xs text-gcs-sub">
-          <Clock className="w-3.5 h-3.5" />
-          {clock.toLocaleTimeString()}
-        </span>
+          <Power className="w-3.5 h-3.5" />
+          {isStreaming ? "STOP STREAM" : "START STREAM"}
+        </button>
       </div>
     </header>
   );

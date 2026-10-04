@@ -1,3 +1,6 @@
+// ---------------------------------------------------------------------------
+// ResidualsChart – live scrolling Recharts line chart for ΔEGT and ΔCHT
+// ---------------------------------------------------------------------------
 import {
   LineChart,
   Line,
@@ -7,103 +10,117 @@ import {
   Tooltip,
   ReferenceLine,
   ResponsiveContainer,
-  Legend,
 } from "recharts";
 import type { ChartPoint } from "../types";
 
 interface Props {
   data: ChartPoint[];
-  mode: "thermal" | "mechanical";
 }
 
-interface TipPayloadEntry {
-  color: string;
-  name: string;
-  value: number;
-}
+// Normal-scatter thresholds (from Rotax 914 diagnostic guide)
+const EGT_WARN_THRESHOLD  =  40;
+const EGT_NORM_THRESHOLD  = -40;
+const CHT_WARN_THRESHOLD  =  30;
+const CHT_NORM_THRESHOLD  = -30;
 
-function Tip({
+// Custom tooltip
+function CustomTooltip({
   active,
   payload,
   label,
 }: {
   active?: boolean;
-  payload?: TipPayloadEntry[];
+  payload?: Array<{ color: string; name: string; value: number }>;
   label?: string;
 }) {
   if (!active || !payload?.length) return null;
   return (
     <div className="bg-gcs-bg border border-gcs-border rounded-lg px-3 py-2 text-xs font-mono shadow-xl">
-      <p className="text-gcs-sub mb-1">t+{label}</p>
+      <p className="text-gcs-subtext mb-1">{label}</p>
       {payload.map((p) => (
         <p key={p.name} style={{ color: p.color }}>
-          {p.name}:{" "}
-          <b>
-            {p.value > 0 ? "+" : ""}
-            {p.value.toFixed(2)}
-          </b>
+          {p.name}: <span className="font-bold">{p.value > 0 ? "+" : ""}{p.value.toFixed(1)} °C</span>
         </p>
       ))}
     </div>
   );
 }
 
-const THERMAL = [
-  { key: "delta_egt_c", name: "ΔEGT (°C)", color: "#fb923c", warn: 60 },
-  { key: "delta_cht_c", name: "ΔCHT (°C)", color: "#38bdf8", warn: 20 },
-];
-const MECH = [
-  { key: "delta_oil_temp_c", name: "ΔOil Temp (°C)", color: "#a78bfa", warn: 10 },
-  { key: "delta_oil_pressure_psi", name: "ΔOil Press (psi)", color: "#34d399", warn: 14 },
-  { key: "delta_vibration_rms_g", name: "ΔVib (g)", color: "#f472b6", warn: 0.9 },
-];
-
-export default function ResidualsChart({ data, mode }: Props) {
-  const lines = mode === "thermal" ? THERMAL : MECH;
-  const title = mode === "thermal" ? "Thermal Residuals" : "Mechanical Residuals";
-  const subtitle =
-    mode === "thermal"
-      ? "Δ = Actual − Expected · dashed = warn band"
-      : "Oil temp · oil pressure · vibration deviations";
+export default function ResidualsChart({ data }: Props) {
   const isEmpty = data.length === 0;
 
   return (
-    <div className="bg-gcs-surface border border-gcs-border rounded-xl p-4 flex flex-col gap-3">
-      <div>
-        <span className="text-xs font-mono font-semibold uppercase tracking-widest text-gcs-sub">
-          {title}
-        </span>
-        <p className="text-gcs-sub text-[10px] mt-0.5 font-mono">{subtitle}</p>
+    <div className="gcs-card flex flex-col gap-3">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <span className="gcs-label">Physics Residuals</span>
+          <p className="text-gcs-subtext text-xs mt-0.5 font-mono">
+            Δ = Actual − Expected &nbsp;·&nbsp; Normal scatter: |ΔEGT| &lt; 20 °C, |ΔCHT| &lt; 15 °C
+          </p>
+        </div>
+        <div className="flex items-center gap-3 text-xs font-mono">
+          <span className="flex items-center gap-1">
+            <span className="inline-block w-3 h-0.5 bg-[#fb923c]" />
+            <span className="text-gcs-subtext">ΔEGT</span>
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block w-3 h-0.5 bg-[#38bdf8]" />
+            <span className="text-gcs-subtext">ΔCHT</span>
+          </span>
+        </div>
       </div>
 
-      <div className="h-48">
+      {/* Chart */}
+      <div className="h-52">
         {isEmpty ? (
-          <div className="h-full flex items-center justify-center text-gcs-sub text-sm font-mono">
-            Awaiting live residual stream…
+          <div className="h-full flex items-center justify-center text-gcs-subtext text-sm font-mono">
+            Awaiting telemetry stream…
           </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={data} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false} />
+              <CartesianGrid
+                strokeDasharray="3 3"
+                stroke="#1f2937"
+                vertical={false}
+              />
+
+              {/* Zero line */}
               <ReferenceLine y={0} stroke="#374151" strokeWidth={1} />
-              {lines.flatMap((l) => [
-                <ReferenceLine
-                  key={`${l.key}+`}
-                  y={l.warn}
-                  stroke={l.color}
-                  strokeDasharray="4 4"
-                  strokeWidth={1}
-                  strokeOpacity={0.35}
-                />,
-                <ReferenceLine
-                  key={`${l.key}-`}
-                  y={-l.warn}
-                  stroke={l.color}
-                  strokeDasharray="4 4"
-                  strokeWidth={1}
-                  strokeOpacity={0.35}
-                />,
-              ])}
+
+              {/* EGT warning bands */}
+              <ReferenceLine
+                y={EGT_WARN_THRESHOLD}
+                stroke="#fb923c"
+                strokeDasharray="4 4"
+                strokeWidth={1}
+                strokeOpacity={0.5}
+              />
+              <ReferenceLine
+                y={EGT_NORM_THRESHOLD}
+                stroke="#fb923c"
+                strokeDasharray="4 4"
+                strokeWidth={1}
+                strokeOpacity={0.5}
+              />
+
+              {/* CHT warning bands */}
+              <ReferenceLine
+                y={CHT_WARN_THRESHOLD}
+                stroke="#38bdf8"
+                strokeDasharray="4 4"
+                strokeWidth={1}
+                strokeOpacity={0.5}
+              />
+              <ReferenceLine
+                y={CHT_NORM_THRESHOLD}
+                stroke="#38bdf8"
+                strokeDasharray="4 4"
+                strokeWidth={1}
+                strokeOpacity={0.5}
+              />
+
               <XAxis
                 dataKey="time"
                 tick={{ fill: "#6b7280", fontSize: 10, fontFamily: "JetBrains Mono" }}
@@ -115,27 +132,31 @@ export default function ResidualsChart({ data, mode }: Props) {
                 tick={{ fill: "#6b7280", fontSize: 10, fontFamily: "JetBrains Mono" }}
                 tickLine={false}
                 axisLine={false}
-                tickFormatter={(v: number) => `${v > 0 ? "+" : ""}${Number(v).toFixed(0)}`}
+                tickFormatter={(v: number) => `${v > 0 ? "+" : ""}${v}`}
                 domain={["auto", "auto"]}
               />
-              <Tooltip content={<Tip />} />
-              <Legend
-                wrapperStyle={{ fontSize: "10px", fontFamily: "JetBrains Mono", paddingTop: "4px" }}
-                formatter={(value) => <span style={{ color: "#9ca3af" }}>{value}</span>}
+              <Tooltip content={<CustomTooltip />} />
+
+              <Line
+                type="monotone"
+                dataKey="delta_egt"
+                name="ΔEGT"
+                stroke="#fb923c"
+                strokeWidth={2}
+                dot={false}
+                activeDot={{ r: 4, fill: "#fb923c" }}
+                isAnimationActive={false}
               />
-              {lines.map((l) => (
-                <Line
-                  key={l.key}
-                  type="monotone"
-                  dataKey={l.key}
-                  name={l.name}
-                  stroke={l.color}
-                  strokeWidth={1.8}
-                  dot={false}
-                  activeDot={{ r: 3 }}
-                  isAnimationActive={false}
-                />
-              ))}
+              <Line
+                type="monotone"
+                dataKey="delta_cht"
+                name="ΔCHT"
+                stroke="#38bdf8"
+                strokeWidth={2}
+                dot={false}
+                activeDot={{ r: 4, fill: "#38bdf8" }}
+                isAnimationActive={false}
+              />
             </LineChart>
           </ResponsiveContainer>
         )}

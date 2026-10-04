@@ -1,26 +1,29 @@
-# ── Python ───────────────────────────────────────────────────────────────────
+# SAM build artefacts
+.aws-sam/
+samconfig.toml.bak
+
+# Python
 __pycache__/
 *.py[cod]
 *.egg-info/
 .venv/
 venv/
-.pytest_cache/
-
-# ── Node / Frontend ──────────────────────────────────────────────────────────
-node_modules/
 dist/
-frontend/dist/
 
-# ── Environment & secrets (never commit) ─────────────────────────────────────
+# Node / Frontend
+node_modules/
+frontend/dist/
+frontend/.env.local
+
+# AWS credentials – never commit
 .env
-.env.*
-!.env.example
 *.pem
 
-# ── Runtime artifacts ────────────────────────────────────────────────────────
-*.db
-backend/vajratwin.db
-
-# ── OS / editor ──────────────────────────────────────────────────────────────
-.DS_Store
-Thumbs.db
+# Local dev environment
+local/backend/.venv/
+local/backend/__pycache__/
+local/backend/vajratwin.db
+local/backend/data/
+local/frontend/node_modules/
+local/frontend/dist/
+local/vajra_aws/

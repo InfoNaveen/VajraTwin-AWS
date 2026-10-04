@@ -1,0 +1,15 @@
+version = 0.1
+
+[default.global.parameters]
+stack_name = "vajra-twin-dev"
+
+[default.build.parameters]
+cached = true
+parallel = true
+
+[default.deploy.parameters]
+capabilities        = "CAPABILITY_IAM"
+confirm_changeset   = false
+resolve_s3          = true
+region              = "eu-north-1"
+parameter_overrides = "Stage=dev"
